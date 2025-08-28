@@ -1,9 +1,14 @@
 // server.js
-// Один файл: Express + Socket.IO сервер и фронтенд.
-// Улучшения: низкая задержка + высокое качество + адаптация (авто-уровни)
-// Зависимости: express, socket.io, cors
-// Установка: npm install express socket.io cors
-// Запуск: node server.js
+// Один файл: Express + Socket.IO сервер и клиент (встроенный HTML/JS)
+// Установка:
+//   npm init -y
+//   npm install express socket.io cors
+// Запуск:
+//   node server.js
+//
+// Поддержка TURN:
+//   Если у вас есть TURN, установите в окружении: TURN_URL, TURN_USER, TURN_PASS
+//   (например TURN_URL = "turn:your.turn.server:3478")
 
 const express = require('express');
 const http = require('http');
@@ -13,47 +18,47 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 
-// ---------- встроенный фронтенд (HTML/JS) ----------
+// ----------------- Встроенный frontend (HTML+JS) -----------------
 const indexHtml = `<!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Low-latency High-quality Call</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WebRTC call — single file</title>
 <style>
-  html,body{height:100%;margin:0;background:#000;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto;}
+  :root{--green:#128C7E;--red:#E50914;--bg:#000;}
+  html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;}
   .screen{position:relative;height:100vh;overflow:hidden;}
-  video#remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
-  video#local{position:absolute;top:16px;right:16px;width:160px;height:120px;border-radius:12px;object-fit:cover;border:3px solid rgba(255,255,255,0.85);z-index:20;}
-  header{position:absolute;top:8px;left:8px;color:white;z-index:30;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:10px;}
-  .controls{position:absolute;left:50%;transform:translateX(-50%);bottom:28px;display:flex;gap:18px;z-index:30;}
+  #remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;}
+  #local{position:absolute;top:16px;right:16px;width:160px;height:120px;border-radius:12px;object-fit:cover;border:3px solid rgba(255,255,255,0.85);z-index:20;}
+  header{position:absolute;left:12px;top:12px;color:#fff;z-index:30;background:rgba(0,0,0,0.35);padding:8px 12px;border-radius:10px;}
+  .join{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.6);padding:16px;border-radius:12px;min-width:300px;z-index:40;display:flex;flex-direction:column;gap:8px;}
+  input{padding:10px;border-radius:8px;border:none;background:rgba(255,255,255,0.04);color:#fff;}
+  button.primary{padding:10px;border-radius:8px;border:none;background:#25D366;color:#002;font-weight:700;cursor:pointer;}
+  .controls{position:absolute;left:50%;transform:translateX(-50%);bottom:28px;display:flex;gap:12px;z-index:30;}
   .btn{width:64px;height:64px;border-radius:50%;border:none;display:flex;align-items:center;justify-content:center;font-size:22px;color:white;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.6);}
-  .btn.green{background:#128C7E;}
-  .btn.red{background:#E50914;}
-  .join{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.6);padding:16px;border-radius:12px;z-index:40;min-width:300px;display:flex;flex-direction:column;gap:8px;}
-  input{padding:10px;border-radius:8px;border:none;background:rgba(255,255,255,0.04);color:white;}
-  button.action{padding:10px;border-radius:8px;border:none;background:#25D366;color:#002;font-weight:700;}
+  .btn.green{background:var(--green);} .btn.red{background:var(--red);}
   .status{position:absolute;left:12px;bottom:12px;color:#ddd;z-index:30;font-size:13px;}
-  .log{position:absolute;left:12px;top:72px;color:#ddd;z-index:30;font-size:12px;max-width:320px;white-space:pre-wrap;}
+  .log{position:absolute;left:12px;top:72px;color:#ddd;z-index:30;font-size:12px;max-width:360px;white-space:pre-wrap;}
 </style>
 </head>
 <body>
-  <div class="screen" id="screen">
+  <div class="screen">
     <video id="remote" autoplay playsinline></video>
     <video id="local" autoplay playsinline muted></video>
-    <header id="hdr">Звонок — оптимизировано для низкой задержки</header>
+    <header id="hdr">Видеозвонок</header>
 
     <div class="join" id="joinPanel">
-      <input id="room" placeholder="Имя комнаты (например: friends)"/>
-      <input id="pass" placeholder="(опционально) пароль комнаты"/>
+      <input id="room" placeholder="Имя комнаты (например: friends)" />
+      <input id="turn" placeholder="(опц.) TURN_URL (можно оставить пустым)" />
       <div style="display:flex;gap:8px;">
-        <button class="action" id="joinBtn">Подключиться</button>
-        <button id="startDirect" title="Попробовать напрямую (prefers host)">Direct</button>
+        <button id="joinBtn" class="primary">Подключиться</button>
+        <button id="testBtn">Тест</button>
       </div>
-      <div style="font-size:12px;color:#ccc;">Настройки: старт 720p@30/2.5Mbps, динамическое управление</div>
+      <div style="font-size:12px;color:#ccc;">Если не устанавливается связь — потребуется TURN (введите TURN_URL или задайте env на сервере).</div>
     </div>
 
-    <div class="controls hidden" id="controls">
+    <div class="controls" id="controls" style="display:none;">
       <button id="muteBtn" class="btn green">🎤</button>
       <button id="camBtn" class="btn green">📷</button>
       <button id="hangBtn" class="btn red">📞</button>
@@ -65,398 +70,353 @@ const indexHtml = `<!doctype html>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-/* Клиент: агрессивная низколатентная конфигурация + адаптивный контроллер */
 (async function(){
-  const logEl = id('log');
-  function log(...a){ logEl.textContent += a.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; }
+  const status = (s) => { document.getElementById('status').textContent = 'Статус: ' + s; };
+  const logEl = document.getElementById('log');
+  const log = (...args) => { logEl.textContent += args.join(' ') + '\\n'; logEl.scrollTop = logEl.scrollHeight; };
 
-  const joinPanel = id('joinPanel'), joinBtn = id('joinBtn'), roomInput = id('room'), passInput = id('pass');
-  const remote = id('remote'), local = id('local'), statusEl = id('status');
-  const controls = id('controls'), muteBtn = id('muteBtn'), camBtn = id('camBtn'), hangBtn = id('hangBtn');
+  const joinPanel = document.getElementById('joinPanel');
+  const joinBtn = document.getElementById('joinBtn');
+  const testBtn = document.getElementById('testBtn');
+  const roomInput = document.getElementById('room');
+  const turnInput = document.getElementById('turn');
 
-  let socket = null, pc = null, localStream = null, currentRoom = null, isCreator = false;
-  let micOn = true, camOn = true;
-  let statsInterval = null;
-  let adaptState = { scale:1, fps:30, bitrate:2500000 }; // start ~2.5Mbps
+  const remoteV = document.getElementById('remote');
+  const localV = document.getElementById('local');
+  const controls = document.getElementById('controls');
+  const muteBtn = document.getElementById('muteBtn');
+  const camBtn = document.getElementById('camBtn');
+  const hangBtn = document.getElementById('hangBtn');
 
-  // aggressive start constraints: 1280x720 @30-60fps (higher fps if device supports)
-  const startConstraints = {
-    audio: { echoCancellation:true, noiseSuppression:true, sampleRate:48000 },
-    video: {
-      width: { ideal:1280 },
-      height: { ideal:720 },
-      frameRate: { ideal:30, max:60 }
-    }
-  };
+  let socket = null;
+  let pc = null;
+  let localStream = null;
+  let currentRoom = null;
+  let isCreator = false;
+  // Queue for remote ICE candidates received before remoteDescription is set
+  let remoteCandidatesQueue = [];
 
-  // fetch ice servers (server may include TURN) but prefer direct host candidates
-  async function fetchIceServers(){
-    try{
-      const r = await fetch('/config'); if(r.ok){ const j = await r.json(); return j.iceServers || []; }
-    }catch(e){}
-    return [{ urls: 'stun:stun.l.google.com:19302' }];
+  // Default media constraints: balanced (720p@30)
+  const mediaConstraints = { audio: true, video: { width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30, max:60} } };
+
+  // Fetch config (iceServers) from server; server may include TURN from env
+  async function fetchConfig(){
+    try {
+      const r = await fetch('/config');
+      if(r.ok) return await r.json();
+    } catch(e){ /* ignore */ }
+    return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   }
 
-  // choose preferred codec: H264 first for hardware acceleration
-  function preferCodec(transceiver, mimePrefix='video', preferred='video/H264'){
-    try{
-      const caps = RTCRtpSender.getCapabilities('video');
-      if(!caps || !caps.codecs) return;
-      const codecs = caps.codecs;
-      const preferredCodec = codecs.find(c => (c.mimeType||c.codec)?.toLowerCase() === preferred.toLowerCase());
-      if(!preferredCodec) return;
-      // build preference list with preferred first
-      const newOrder = [preferredCodec, ...codecs.filter(c => c !== preferredCodec)];
-      transceiver.setCodecPreferences(newOrder);
-      log('Codec preference set to', preferred);
-    }catch(e){ console.warn('preferCodec failed', e); }
-  }
-
-  // create PC -> apply sender parameters (bitrate, SVC) aggressively
-  async function createPC(){
-    const ice = await fetchIceServers();
-    pc = new RTCPeerConnection({ iceServers: ice, iceCandidatePoolSize: 2 });
-
-    pc.oniceconnectionstatechange = () => {
-      log('ICE state', pc.iceConnectionState);
-      statusEl.textContent = 'ICE: ' + pc.iceConnectionState;
-    };
-
-    pc.onconnectionstatechange = () => {
-      log('PC state', pc.connectionState);
-      statusEl.textContent = 'PC: ' + pc.connectionState;
-    };
-
-    pc.ontrack = (ev) => {
-      if(!remote.srcObject){
-        remote.srcObject = ev.streams[0];
-        log('Remote stream set');
+  // Create RTCPeerConnection with handlers
+  async function createPeerConnection(configIce){
+    pc = new RTCPeerConnection({ iceServers: configIce, iceCandidatePoolSize: 2 });
+    pc.onicecandidate = (e) => {
+      if(e.candidate){
+        socket.emit('candidate', { roomId: currentRoom, candidate: e.candidate });
+        log('Local ICE candidate -> sent');
       }
     };
-
-    // add tracks
+    pc.ontrack = (e) => {
+      if(!remoteV.srcObject){
+        remoteV.srcObject = e.streams[0];
+        log('Remote stream attached');
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      log('PC state', pc.connectionState);
+      status('PC ' + pc.connectionState);
+      // if failed -> try to restart ICE (caller can create new offer with iceRestart)
+      if(pc.connectionState === 'failed'){
+        log('Connection failed — попробуйте перезапустить (ICE restart).');
+      }
+    };
+    // Add local tracks
     if(localStream){
       localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     }
-
-    // prefer H264: need a transceiver; create one if not present
-    try{
-      const trans = pc.getTransceivers().find(t => t.receiver && t.sender);
-      if(trans) preferCodec(trans, 'video', 'video/H264');
-    }catch(e){ console.warn(e); }
-
-    // after tracks added, try set sender params
-    setTimeout(async () => {
-      try{
-        const senders = pc.getSenders();
-        for(const s of senders){
-          if(s.track && s.track.kind === 'video'){
-            const params = s.getParameters();
-            if(!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-            // try SVC if supported (scalabilityMode) - many browsers support "L1T3" or "L1T2"
-            params.encodings[0].maxBitrate = adaptState.bitrate; // start high
-            params.encodings[0].scalabilityMode = 'L1T3';
-            // try to favor low-latency
-            await s.setParameters(params);
-            log('Set sender params', params.encodings);
-          }
-        }
-      }catch(e){ console.warn('setParameters failed', e); }
-    }, 200);
+    // when remoteDescription is set later, flush queued candidates
+    return pc;
   }
 
-  // negotiate (caller)
-  async function makeOffer(){
-    await createPCIfNeeded();
-    const offer = await pc.createOffer({ offerToReceiveVideo:true, offerToReceiveAudio:true });
-    await pc.setLocalDescription(offer);
-    socket.emit('offer', { roomId: currentRoom, sdp: pc.localDescription });
-    log('Sent offer');
-  }
-
-  // ensure pc exists
-  async function createPCIfNeeded(){
-    if(!pc) await createPC();
-  }
-
-  // --- adaptive controller: monitor stats and quickly adjust ---
-  async function startStatsLoop(){
-    if(statsInterval) clearInterval(statsInterval);
-    statsInterval = setInterval(async () => {
-      if(!pc) return;
-      try{
-        const stats = await pc.getStats();
-        let rtt = 0, packetsLost = 0, totalPackets = 0, framesDropped = 0, outboundBitrate = 0;
-        stats.forEach(report => {
-          if(report.type === 'candidate-pair' && report.state === 'succeeded'){
-            if(report.currentRoundTripTime) rtt = report.currentRoundTripTime;
-            if(report.availableOutgoingBitrate) outboundBitrate = report.availableOutgoingBitrate;
-          }
-          if(report.type === 'outbound-rtp' && report.kind === 'video'){
-            if(report.framesDropped) framesDropped += report.framesDropped;
-            if(report.bytesSent && report.timestamp && report.packetsSent){
-              // compute approximate bitrate if needed (could compute delta)
-            }
-            if(report.packetsSent) totalPackets += report.packetsSent;
-            if(report.packetsLost) packetsLost += report.packetsLost;
-          }
-        });
-
-        // quick health metric: rtt (s) and packet loss ratio (packetsLost / max(1,totalPackets))
-        const lossRatio = totalPackets ? (packetsLost / totalPackets) : 0;
-        // Decision thresholds (aggressive; tune as needed)
-        // If rtt > 0.18s or lossRatio > 0.02 or framesDropped > 5 -> degrade
-        const needDegrade = (rtt > 0.18) || (lossRatio > 0.02) || (framesDropped > 5);
-        const needUpgrade = (rtt < 0.07) && (lossRatio < 0.002);
-
-        if(needDegrade){
-          // decrease quickly
-          adaptState.scale = Math.min(2, adaptState.scale * 1.5); // scaleResolutionDownBy >1 reduces resolution
-          adaptState.fps = Math.max(15, Math.floor(adaptState.fps * 0.7));
-          adaptState.bitrate = Math.max(250_000, Math.floor(adaptState.bitrate * 0.6));
-          await applyAdaptation();
-          log('Degraded: rtt', rtt.toFixed(3), 'loss', lossRatio.toFixed(4), 'scale', adaptState.scale, 'fps', adaptState.fps, 'bitrate', adaptState.bitrate);
-        } else if(needUpgrade){
-          // be conservative increasing
-          adaptState.scale = Math.max(1, adaptState.scale * 0.8);
-          adaptState.fps = Math.min(60, Math.floor(adaptState.fps * 1.15) || 30);
-          adaptState.bitrate = Math.min(8_000_000, Math.floor(adaptState.bitrate * 1.25));
-          await applyAdaptation();
-          log('Upgraded: rtt', rtt.toFixed(3), 'loss', lossRatio.toFixed(4), 'scale', adaptState.scale, 'fps', adaptState.fps, 'bitrate', adaptState.bitrate);
-        }
-      }catch(e){ console.warn('stats loop error', e); }
-    }, 1500);
-  }
-
-  async function applyAdaptation(){
+  // Apply any queued remote ICE candidates
+  async function flushRemoteCandidates(){
     if(!pc) return;
-    try{
-      for(const sender of pc.getSenders()){
-        if(sender.track && sender.track.kind === 'video'){
-          const params = sender.getParameters();
-          if(!params.encodings || params.encodings.length === 0) params.encodings = [{}];
-          // 'scaleResolutionDownBy' reduces resolution on sender side (1 = same, 2 = half)
-          params.encodings[0].scaleResolutionDownBy = adaptState.scale;
-          params.encodings[0].maxBitrate = adaptState.bitrate;
-          // set frame rate by applying constraint on track (if supported)
-          try{
-            await sender.track.applyConstraints({ frameRate: { ideal: adaptState.fps, max: adaptState.fps } });
-          }catch(e){ /* some browsers disallow applyConstraints on track */ }
-          await sender.setParameters(params);
-        }
+    if(remoteCandidatesQueue.length === 0) return;
+    for(const c of remoteCandidatesQueue){
+      try{
+        await pc.addIceCandidate(new RTCIceCandidate(c));
+        log('Applied queued remote candidate');
+      }catch(e){
+        console.warn('addIceCandidate error', e);
       }
-    }catch(e){ console.warn('applyAdaptation failed', e); }
+    }
+    remoteCandidatesQueue = [];
   }
 
-  // quick ICE restart helper (if connection stuck)
-  async function tryIceRestart(){
-    if(!pc) return;
-    try{
-      const offer = await pc.createOffer({ iceRestart:true });
-      await pc.setLocalDescription(offer);
-      socket.emit('offer', { roomId: currentRoom, sdp: pc.localDescription });
-      log('ICE restart attempted');
-    }catch(e){ console.warn('iceRestart failed', e); }
-  }
+  // Handlers for socket events
+  function attachSocketHandlers(){
+    socket.on('created', () => {
+      isCreator = true;
+      status('Вы — создатель комнаты (ожидаем другого участника)');
+      log('received created');
+    });
 
-  // --------------- signaling via socket.io (simple) ---------------
-  function setupSocketHandlers(){
-    socket.on('created', () => { isCreator = true; status('Вы — создатель (ожидаем)'); });
     socket.on('ready', async () => {
-      status('Собеседник в комнате, устанавливаем связь...');
+      status('В комнате 2 участника — начинаем сигналинг');
+      log('received ready');
       if(isCreator){
-        await makeOffer();
+        // create offer
+        try{
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('offer', { roomId: currentRoom, sdp: pc.localDescription });
+          log('offer sent');
+        }catch(e){ console.error('make offer failed', e); }
       }
     });
 
     socket.on('offer', async ({ sdp }) => {
-      await createPCIfNeeded();
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('answer', { roomId: currentRoom, sdp: pc.localDescription });
-      log('Received offer, sent answer');
-      startStatsLoop();
+      log('received offer');
+      try{
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        // flush candidates queued before remote desc
+        await flushRemoteCandidates();
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', { roomId: currentRoom, sdp: pc.localDescription });
+        log('answer sent');
+      }catch(e){ console.error('handle offer failed', e); }
     });
 
     socket.on('answer', async ({ sdp }) => {
-      if(!pc) return;
-      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-      log('Received answer');
-      startStatsLoop();
+      log('received answer');
+      try{
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await flushRemoteCandidates();
+      }catch(e){ console.error('handle answer failed', e); }
     });
 
-    socket.on('ice-candidate', async ({ candidate }) => {
-      try{ if(candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate)); }catch(e){ console.warn('addIce failed', e); }
+    // candidates forwarded by server
+    socket.on('candidate', async ({ candidate }) => {
+      log('received remote candidate');
+      try{
+        // if remoteDescription not set yet - queue
+        if(!pc || !pc.remoteDescription || pc.remoteDescription.type === null){
+          remoteCandidatesQueue.push(candidate);
+          log('queued remote candidate (remoteDescription not set yet)');
+        } else {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          log('added remote candidate');
+        }
+      }catch(e){
+        console.warn('addIceCandidate error', e);
+      }
     });
 
-    socket.on('room-full', () => { alert('Комната занята (макс 2).'); cleanup(); });
-    socket.on('peer-left', () => { status('Собеседник вышел'); });
+    socket.on('peer-left', () => {
+      status('Собеседник вышел');
+      log('peer-left');
+      // cleanup remote stream
+      if(remoteV.srcObject){ remoteV.srcObject = null; }
+    });
+
+    socket.on('room-full', () => { alert('Комната заполнена (макс 2 участника)'); cleanup(); });
+    socket.on('invalid-room', () => { alert('Неверное имя комнаты'); cleanup(); });
   }
 
-  // createOffer used earlier
-  async function makeOffer(){
-    await createPCIfNeeded();
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socket.emit('offer', { roomId: currentRoom, sdp: pc.localDescription });
-    log('Sent offer');
-    startStatsLoop();
-  }
-
-  // join flow
+  // Start/join flow
   joinBtn.addEventListener('click', async () => {
-    const room = (roomInput.value||'').trim();
+    const room = (roomInput.value || '').trim();
     if(!room) return alert('Введите имя комнаты');
     currentRoom = room;
-    // get high-quality media initially
+    // get local media (constrained for quality but not extreme)
     try{
-      localStream = await navigator.mediaDevices.getUserMedia(startConstraints);
-      local.srcObject = localStream;
+      localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      localV.srcObject = localStream;
     }catch(e){
       alert('Ошибка доступа к камере/микрофону: ' + (e.message || e));
       return;
     }
 
+    // fetch ice config from server; if user provided TURN URL in the field - tell server to include it by calling /config?turn=...
+    let config = await fetchConfig();
+    // If user typed a TURN URL into input we try to use it as an extra candidate (note: server must have env TURN to actually use credentials)
+    // (This input is informational; primary recommendation is to set TURN on server via env variables.)
+    log('Using ICE servers:', JSON.stringify(config.iceServers));
+
     socket = io();
-    setupSocketHandlers();
+    attachSocketHandlers();
 
-    // Join: server simply accepts room string (we keep it simple here)
+    // create pc with ICE servers
+    pc = await createPeerConnection(config.iceServers);
+
+    // join room
     socket.emit('join', currentRoom);
-
+    status('Подключено к сигналингу, ожидаем...');
     joinPanel.style.display = 'none';
-    controls.classList.remove('hidden');
-    status('Подключено, ожидаем собеседника');
+    controls.style.display = 'flex';
+  });
+
+  // Manual test button: check if browser can get local candidates + basic operations
+  testBtn.addEventListener('click', async () => {
+    log('Running quick test: enumerating devices and creating local stream...');
+    try{
+      const s = await navigator.mediaDevices.getUserMedia({ audio:true, video:true });
+      log('Got media tracks:', s.getTracks().map(t => t.kind + '/' + t.readyState).join(', '));
+      s.getTracks().forEach(t => t.stop());
+      alert('Камера и микрофон доступны');
+    }catch(e){
+      alert('Ошибка доступа: ' + (e.message || e));
+    }
   });
 
   // control buttons
   muteBtn.addEventListener('click', () => {
     if(!localStream) return;
-    micOn = !micOn;
-    localStream.getAudioTracks().forEach(t=>t.enabled = micOn);
-    muteBtn.textContent = micOn ? '🎤' : '🔇';
+    const enabled = !localStream.getAudioTracks()[0].enabled;
+    localStream.getAudioTracks().forEach(t => t.enabled = enabled);
+    muteBtn.textContent = enabled ? '🎤' : '🔇';
   });
-
   camBtn.addEventListener('click', () => {
     if(!localStream) return;
-    camOn = !camOn;
-    localStream.getVideoTracks().forEach(t=>t.enabled = camOn);
-    camBtn.textContent = camOn ? '📷' : '🚫';
+    const enabled = !localStream.getVideoTracks()[0].enabled;
+    localStream.getVideoTracks().forEach(t => t.enabled = enabled);
+    camBtn.textContent = enabled ? '📷' : '🚫';
   });
-
   hangBtn.addEventListener('click', cleanup);
 
-  // cleanup
+  // cleanup function
   function cleanup(){
     try{ if(socket){ socket.emit('leave', { room: currentRoom }); socket.disconnect(); socket = null; } }catch(e){}
     try{ if(pc){ pc.close(); pc = null; } }catch(e){}
-    try{ if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream = null; } }catch(e){}
+    try{ if(localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; } }catch(e){}
+    remoteV.srcObject = null; localV.srcObject = null;
     joinPanel.style.display = 'block';
-    controls.classList.add('hidden');
-    remote.srcObject = null;
-    local.srcObject = null;
-    status('Не подключено');
-    if(statsInterval) clearInterval(statsInterval);
+    controls.style.display = 'none';
+    status('Отключено');
+    remoteCandidatesQueue = [];
+    log('Cleaned up');
   }
 
-  // helper
-  function id(n){ return document.getElementById(n); }
-  function status(s){ statusEl.textContent = 'Статус: ' + s; log('STATUS:', s); }
+  // ensure cleanup on unload
+  window.addEventListener('beforeunload', cleanup);
 
-  // When pc is created, hook local track senders to emit ICE candidates through socket
-  // need to intercept pc.onicecandidate already in createPC
-  // Also add logic to emit ice-candidate
-  // (we already used createPC's built-in onicecandidate via pc configuration earlier - but server signaling wiring:)
-  // wire socket basic ICE events:
-  if(window){
-    // listen to socket-level events for ICE usage within setupSocketHandlers
-    // but we need to ensure pc.onicecandidate sends to socket:
-    // We'll patch pc creation to send ice candidates - done in createPC: add handler now:
+  // small helper to fetch config (calls server /config)
+  async function fetchConfig(){
+    try{
+      // if user provided turn URL in field, we still rely on server env. The safest is to set TURN variables on server.
+      const resp = await fetch('/config');
+      if(resp.ok) return await resp.json();
+    }catch(e){}
+    return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
   }
 
-  // Note: The server routes: 'join' {room}, 'offer', 'answer', 'ice-candidate' (same as earlier server)
-  // We rely on server simply forwarding messages.
-
+  // initial UI text
+  status('Готово');
 })(); // IIFE
 </script>
 </body>
-</html>`;
+</html>
+`;
 
-// ---------- простой сервер (тот же сигналинг, не меняем логику комнат) ----------
+// ----------------- Сервер: конфиг ICE и простая логика комнат -----------------
 app.get('/', (req, res) => {
-  res.setHeader('Content-Type','text/html; charset=utf-8');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(indexHtml);
 });
 
+// отдаём iceServers (добавляем TURN если заданы env переменные)
 app.get('/config', (req, res) => {
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ];
+
+  // If TURN env variables are present, add TURN
   if (process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS) {
-    iceServers.push({ urls: process.env.TURN_URL, username: process.env.TURN_USER, credential: process.env.TURN_PASS });
+    iceServers.push({
+      urls: process.env.TURN_URL, // e.g. "turn:turn.example.com:3478"
+      username: process.env.TURN_USER,
+      credential: process.env.TURN_PASS
+    });
   }
+
   res.json({ iceServers });
 });
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-const rooms = new Map(); // roomId -> Set(socketId)
+// rooms: Map roomId -> Set(socketId)
+const rooms = new Map();
 
-io.on('connection', socket => {
-  let joined = null;
+io.on('connection', (socket) => {
+  let joinedRoom = null;
 
   socket.on('join', (room) => {
     room = String(room || '').trim();
     if (!room) { socket.emit('invalid-room'); return; }
+
     if (!rooms.has(room)) rooms.set(room, new Set());
     const members = rooms.get(room);
-    if (members.size >= 2) { socket.emit('room-full'); return; }
+
+    if (members.size >= 2) {
+      socket.emit('room-full');
+      return;
+    }
+
     members.add(socket.id);
     socket.join(room);
-    joined = room;
+    joinedRoom = room;
+
     if (members.size === 1) {
       socket.emit('created');
-    } else {
-      // notify both participants that room is ready
+    } else if (members.size === 2) {
+      // notify both participants
       io.to(room).emit('ready');
     }
+    console.log('Room', room, 'members', Array.from(members));
   });
 
+  // offer/answer/candidate forwarding
   socket.on('offer', ({ roomId, sdp }) => {
+    if (!roomId) return;
     socket.to(roomId).emit('offer', { sdp });
   });
   socket.on('answer', ({ roomId, sdp }) => {
+    if (!roomId) return;
     socket.to(roomId).emit('answer', { sdp });
   });
-  socket.on('ice-candidate', ({ roomId, candidate }) => {
-    socket.to(roomId).emit('ice-candidate', { candidate });
+  socket.on('candidate', ({ roomId, candidate }) => {
+    if (!roomId) return;
+    socket.to(roomId).emit('candidate', { candidate });
   });
 
   socket.on('leave', ({ room } = {}) => {
-    if (!joined) return;
-    const s = rooms.get(joined);
-    if (s) {
-      s.delete(socket.id);
-      socket.to(joined).emit('peer-left');
-      if (s.size === 0) rooms.delete(joined);
+    if (!joinedRoom) return;
+    const r = rooms.get(joinedRoom);
+    if (r) {
+      r.delete(socket.id);
+      socket.to(joinedRoom).emit('peer-left');
+      if (r.size === 0) rooms.delete(joinedRoom);
     }
-    socket.leave(joined);
-    joined = null;
+    socket.leave(joinedRoom);
+    joinedRoom = null;
   });
 
   socket.on('disconnect', () => {
-    if (!joined) return;
-    const s = rooms.get(joined);
-    if (s) {
-      s.delete(socket.id);
-      socket.to(joined).emit('peer-left');
-      if (s.size === 0) rooms.delete(joined);
+    if (!joinedRoom) return;
+    const r = rooms.get(joinedRoom);
+    if (r) {
+      r.delete(socket.id);
+      socket.to(joinedRoom).emit('peer-left');
+      if (r.size === 0) rooms.delete(joinedRoom);
     }
-    joined = null;
+    joinedRoom = null;
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log('Server listening on', PORT));
+server.listen(PORT, () => console.log('✅ Server listening on port', PORT));
