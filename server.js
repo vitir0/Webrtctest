@@ -144,7 +144,7 @@ const rooms=new Map();
 io.on("connection",socket=>{
   let joined=null;
   socket.on("join",({room,password})=>{
-    if(!rooms.has(room)) rooms.set(room,{password,password||"",members:new Set()});
+    if(!rooms.has(room)) rooms.set(room,{password: password || "", members: new Set()});
     const r=rooms.get(room);
 
     // Проверка пароля
